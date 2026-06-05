@@ -3,7 +3,8 @@
 # ELKS System Builder
 # This build script is also called in main.yml for GitHub Continuous Integration
 #
-# Usage: ./build.sh [auto [[ext] [[[allimages]]]]]
+# Usage: ./build.sh [-v] [auto [[ext] [[[allimages]]]]]
+#   -v          verbose: show all build output (default: quiet, logged to build.log)
 #   <no args>:  user build: build cross-compiler, menuconfig kernel and standard apps
 #   auto        github CI build:: just IBM PC, 8018X, NECV25 kernel and standard apps
 #   ext         also build external apps (requires OpenWatcom C installed)
@@ -18,14 +19,67 @@
 set -e
 
 SCRIPTDIR="$(dirname "$0")"
+LOGFILE="$SCRIPTDIR/build.log"
+
+# Parse -v flag before positional args
+VERBOSE=""
+while getopts "v" opt; do
+	case $opt in
+		v) VERBOSE=1 ;;
+	esac
+done
+shift $((OPTIND-1))
+
+# auto mode (CI) always shows full output for debugging
+if [ "$1" = "auto" ]; then
+	VERBOSE=1
+fi
+
+# Save fd 3 for terminal, start fresh log
+exec 3>&1
+: > "$LOGFILE"
+
+msg() {
+	echo "$*" >&3
+}
+
+run() {
+	local msgtxt="$1"
+	shift
+	if [ -n "$VERBOSE" ]; then
+		msg "=== $msgtxt ==="
+		"$@" 2>&1 | tee -a "$LOGFILE" >&3
+		return "${PIPESTATUS[0]}"
+	else
+		echo -n "  $msgtxt" >&3
+		"$@" >> "$LOGFILE" 2>&1 &
+		local pid=$!
+		local dots=""
+		while kill -0 $pid 2>/dev/null; do
+			dots="${dots}."
+			echo -n "." >&3
+			sleep 3
+		done
+		wait $pid
+		local rc=$?
+		if [ $rc -eq 0 ]; then
+			echo " done" >&3
+		else
+			echo " FAILED" >&3
+			return $rc
+		fi
+	fi
+}
 
 clean_exit () {
 	E="$1"
-	test -z $1 && E=0
-	if [ $E -eq 0 ]
-		then echo "Build script has completed successfully."
-		else echo "Build script has terminated with error $E"
+	test -z "$E" && E=0
+	if [ $E -eq 0 ]; then
+		msg "Build script has completed successfully."
+	else
+		msg "Build script has terminated with error $E"
 	fi
+	[ -n "$VERBOSE" ] && msg "Full log: $LOGFILE"
 	exit $E
 }
 
@@ -38,22 +92,21 @@ clean_exit () {
 
 if [ "$1" != "auto" ]; then
 	mkdir -p "$CROSSDIR"
-	tools/build.sh || clean_exit 1
+	run "Building cross tools" tools/build.sh || clean_exit 1
 fi
 
 # Configure all
 
 if [ "$1" = "auto" ]; then
-	echo "Invoking 'make defconfig'..."
+	msg "Invoking 'make defconfig'..."
 	make defconfig || clean_exit 2
-	echo "Building IBM PC image..."
-	#cp ibmpc-1440.config .config
+	msg "Building IBM PC image..."
 	cp ibmpc-1440-nc.config .config
 else
-	echo
-	echo "Now invoking 'make menuconfig' for you to configure the system."
-	echo "The defaults should be OK for many systems, but you may want to review them."
-	echo -n "Press ENTER to continue..."
+	msg ""
+	msg "Now invoking 'make menuconfig' for you to configure the system."
+	msg "The defaults should be OK for many systems, but you may want to review them."
+	echo -n "Press ENTER to continue..." >&3
 	read
 	make menuconfig || clean_exit 2
 fi
@@ -63,66 +116,60 @@ test -e .config || clean_exit 3
 # Clean kernel, user land and image
 
 if [ "$1" != "auto" ]; then
-	echo "Cleaning all..."
-	make clean || clean_exit 4
-	fi
+	run "Cleaning all" make clean || clean_exit 4
+fi
 
 # Build default kernel, user land and image
-# Parallel build enabled via MAKEFLAGS in env.sh (historic #273 resolved)
 
-echo "Building all..."
+msg "Building all..."
 make all || clean_exit 5
 
 if [ "$2" = "ext" ]; then
-    echo "Building external applications..."
-    ./buildext.sh all || clean_exit 51
+	msg "Building external applications..."
+	./buildext.sh all || clean_exit 51
 fi
 
 # Possibly build all images
 
 if [ "$3" = "allimages" ]; then
-	echo "Building FD images..."
-	cd image
-	make images-minix images-fat || clean_exit 6
-	echo "Building HD images..."
-	make images-hd || clean_exit 61
-	cd ..
+	run "Building FD images" sh -c "cd image && make images-minix images-fat" || clean_exit 6
+	run "Building HD images" sh -c "cd image && make images-hd" || clean_exit 61
 fi
 
 # Build 8018X kernel and image
 if [ "$1" = "auto" ]; then
-    echo "Building 8018X image..."
-    cp 8018x.config .config
-    make kclean || clean_exit 7
-    rm elkscmd/basic/*.o
-    make || clean_exit 8
+	msg "Building 8018X image..."
+	cp 8018x.config .config
+	run "Cleaning kernel for 8018X" make kclean || clean_exit 7
+	rm -f elkscmd/basic/*.o
+	run "Building 8018X" make || clean_exit 8
 fi
 
 # Build NEC V25 kernel and image
 if [ "$1" = "auto" ]; then
-    echo "Building NECV 25 image..."
-    cp necv25.config .config
-    make kclean || clean_exit 7
-    rm elkscmd/basic/*.o
-    make || clean_exit 8
+	msg "Building NECV 25 image..."
+	cp necv25.config .config
+	run "Cleaning kernel for NECV25" make kclean || clean_exit 7
+	rm -f elkscmd/basic/*.o
+	run "Building NECV25" make || clean_exit 8
 fi
 
 # Build PC-98 kernel, PC-98 Nano-X, some user land files and image
 if [ "$1" = "auto" ]; then
-    echo "Building PC-98 image..."
-    cp pc98-1232.config .config
-    ./buildext.sh microwindows_pc98
-    make kclean || clean_exit 9
-    rm bootblocks/*.o
-    rm elkscmd/sys_utils/clock.o
-    rm elkscmd/sys_utils/ps.o
-    rm elkscmd/sys_utils/meminfo.o
-    rm elkscmd/sys_utils/beep.o
-    rm elkscmd/basic/*.o
-    make || clean_exit 10
+	msg "Building PC-98 image..."
+	cp pc98-1232.config .config
+	./buildext.sh microwindows_pc98
+	run "Cleaning kernel for PC-98" make kclean || clean_exit 9
+	rm -f bootblocks/*.o
+	rm -f elkscmd/sys_utils/clock.o
+	rm -f elkscmd/sys_utils/ps.o
+	rm -f elkscmd/sys_utils/meminfo.o
+	rm -f elkscmd/sys_utils/beep.o
+	rm -f elkscmd/basic/*.o
+	run "Building PC-98" make || clean_exit 10
 fi
 
 # Success
 
-echo "Target image is in 'image' folder."
+msg "Target image is in 'image' folder."
 clean_exit 0
