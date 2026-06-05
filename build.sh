@@ -3,8 +3,8 @@
 # ELKS System Builder
 # This build script is also called in main.yml for GitHub Continuous Integration
 #
-# Usage: ./build.sh [-v] [auto [[ext] [[[allimages]]]]]
-#   -v          verbose: show all build output (default: quiet, logged to build.log)
+# Usage: ./build.sh [-q] [auto [[ext] [[[allimages]]]]]
+#   -q          quiet: suppress build output, show rolling progress dots
 #   <no args>:  user build: build cross-compiler, menuconfig kernel and standard apps
 #   auto        github CI build:: just IBM PC, 8018X, NECV25 kernel and standard apps
 #   ext         also build external apps (requires OpenWatcom C installed)
@@ -21,18 +21,18 @@ set -e
 SCRIPTDIR="$(dirname "$0")"
 LOGFILE="$SCRIPTDIR/build.log"
 
-# Parse -v flag before positional args
-VERBOSE=""
-while getopts "v" opt; do
+# Parse -q flag before positional args
+QUIET=""
+while getopts "q" opt; do
 	case $opt in
-		v) VERBOSE=1 ;;
+		q) QUIET=1 ;;
 	esac
 done
 shift $((OPTIND-1))
 
-# auto mode (CI) always shows full output for debugging
+# auto mode (CI) overrides -q, always shows full output for debugging
 if [ "$1" = "auto" ]; then
-	VERBOSE=1
+	QUIET=""
 fi
 
 # Save fd 3 for terminal, start fresh log
@@ -46,17 +46,11 @@ msg() {
 run() {
 	local msgtxt="$1"
 	shift
-	if [ -n "$VERBOSE" ]; then
-		msg "=== $msgtxt ==="
-		"$@" 2>&1 | tee -a "$LOGFILE" >&3
-		return "${PIPESTATUS[0]}"
-	else
+	if [ -n "$QUIET" ]; then
 		echo -n "  $msgtxt" >&3
 		"$@" >> "$LOGFILE" 2>&1 &
 		local pid=$!
-		local dots=""
 		while kill -0 $pid 2>/dev/null; do
-			dots="${dots}."
 			echo -n "." >&3
 			sleep 3
 		done
@@ -68,6 +62,10 @@ run() {
 			echo " FAILED" >&3
 			return $rc
 		fi
+	else
+		msg "=== $msgtxt ==="
+		"$@" 2>&3 | tee -a "$LOGFILE" >&3
+		return "${PIPESTATUS[0]}"
 	fi
 }
 
@@ -79,7 +77,7 @@ clean_exit () {
 	else
 		msg "Build script has terminated with error $E"
 	fi
-	[ -n "$VERBOSE" ] && msg "Full log: $LOGFILE"
+	[ -n "$QUIET" ] && msg "Full log: $LOGFILE"
 	exit $E
 }
 
@@ -121,12 +119,10 @@ fi
 
 # Build default kernel, user land and image
 
-msg "Building all..."
-make all || clean_exit 5
+run "Building all" make all || clean_exit 5
 
 if [ "$2" = "ext" ]; then
-	msg "Building external applications..."
-	./buildext.sh all || clean_exit 51
+	run "Building external applications" ./buildext.sh all || clean_exit 51
 fi
 
 # Possibly build all images
