@@ -241,6 +241,8 @@ int main(int argc,char **argv)
      * /bootopts or /etc/profile. They can be IP addresses or
      * names in /etc/hosts.
      */
+    /* NOTE: stack is only 3K (-maout-stack=3072). Heavy printf/hex-dump
+     * here will overflow into argv, corrupting these args. Keep it lean. */
     char *default_ip = (p=getenv("HOSTNAME"))? p: DEFAULT_IP;
     char *default_gateway = (p=getenv("GATEWAY"))? p: DEFAULT_GATEWAY;
     char *default_netmask = (p=getenv("NETMASK"))? p: DEFAULT_NETMASK;

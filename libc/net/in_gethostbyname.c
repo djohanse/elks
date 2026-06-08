@@ -70,7 +70,8 @@ try_resolver:
 	addr = in_resolv(str, NULL);
 
 found:
-	//if (addr) printf("found %s\n", name);
-	fclose(fp);
+	/* fp may be NULL when try_resolver path jumps here after fopen failure */
+	if (fp)
+		fclose(fp);
 	return addr;
 }
