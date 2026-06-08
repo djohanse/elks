@@ -43,7 +43,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Inside ELKS: ifconfig $IP netmask 255.255.255.0 gateway $GATE"
+echo "Inside ELKS: ktcp -b $IP $GATE 255.255.255.0"
+echo "     Or after ktcp starts: ifconfig $IP netmask 255.255.255.0 gateway $GATE"
 echo ""
 
 exec sudo qemu-system-x86_64 -nodefaults -machine pc -cpu 486,tsc -m 8M \
