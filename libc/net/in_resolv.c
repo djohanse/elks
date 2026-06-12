@@ -149,6 +149,11 @@ ipaddr_t in_resolv(const char *hostname, char *server)
 
 		write(fd, buf, len + 2);
 		rc = read(fd, buf, 200);
+#if DEBUG
+		printf("DNS: %d message bytes\n", rc);
+		for (int i=0;i<rc;i++) printf("%2x,",buf[i] & 0xff);
+		printf("\n");
+#endif
 		alarm(0);
 		signal(SIGALRM, old);
 		close(fd);
@@ -159,6 +164,14 @@ ipaddr_t in_resolv(const char *hostname, char *server)
 		dns = (struct DNS_HEADER *)buf;
 		flags = htons(dns->flags);
 
+#if DEBUG
+		printf("response id %04x\n", htons(dns->id));
+		printf("response code %04x\n", flags);
+		printf("response qd count %04x\n", htons(dns->qdcount));
+		printf("response an count %04x\n", htons(dns->ancount));
+		printf("response ns count %04x\n", htons(dns->nscount));
+		printf("response ar count %04x\n", htons(dns->arcount));
+#endif
 		/* non-transient: don't retry bad queries or NXDOMAIN */
 		if ((flags & RC) != NO_ERROR) {
 			switch (flags & RC) {
@@ -172,6 +185,14 @@ ipaddr_t in_resolv(const char *hostname, char *server)
 
 		rr = (struct RR *)&buf[rc - sizeof(struct RR)];
 
+#if DEBUG
+		printf("response type %04x\n", htons(rr->type));
+		printf("response class %04x\n", htons(rr->class));
+		printf("response ttl %ld\n", htonl(rr->ttl));
+		printf("response rdlength %04x\n", htons(rr->rdlength));
+		printf("response rdata %08lx\n", htonl(rr->rdata));
+		printf("response IP %s\n", in_ntoa(rr->rdata));
+#endif
 		/* dns may return auth data but not answer */
 		if (htons(dns->ancount) == 0) {
 			errno = ENONAME;
