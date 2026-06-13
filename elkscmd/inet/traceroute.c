@@ -182,7 +182,23 @@ int main(int argc, char **argv)
 	if (optind >= argc)
 		usage();
 
-	target_ip = in_gethostbyname(argv[optind]);
+	{
+		char *host = argv[optind];
+		int ancount = 0;
+		/* check for IP literal */
+		if (*host >= '0' && *host <= '9')
+			target_ip = in_aton(host);
+		else {
+			target_ip = in_resolv(host, NULL, &ancount);
+			if (target_ip == 0) {
+				fprintf(stderr, "traceroute: unknown host %s\n", host);
+				return 1;
+			}
+			if (ancount > 1)
+				printf("warning: %s has multiple addresses, using %s\n",
+				       host, in_ntoa(target_ip));
+		}
+	}
 	if (local_ip == 0)
 		local_ip = in_gethostbyname("10.0.2.15");
 

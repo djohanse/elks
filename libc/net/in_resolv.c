@@ -82,7 +82,8 @@ static void format_dns(char *dns, const char *host)
 }
 
 /* resolve a name to an IP address, optionally use DNS 'server' */
-ipaddr_t in_resolv(const char *hostname, char *server)
+/* if ancount is non-NULL, stores the number of A records returned */
+ipaddr_t in_resolv(const char *hostname, char *server, int *ancount)
 {
 	int fd, rc, len;
 	struct DNS_HEADER *dns;
@@ -199,6 +200,8 @@ ipaddr_t in_resolv(const char *hostname, char *server)
 			return 0;
 		}
 
+		if (ancount)
+			*ancount = htons(dns->ancount);
 		return rr->rdata;
 	}
 
