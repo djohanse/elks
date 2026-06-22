@@ -191,83 +191,12 @@ TAGS += :end
 
 # use bash instead of /bin/sh for curly brace expansion
 SHELL=/bin/bash
-install:
-	@echo "TAGS=$(TAGS)" | tr -d ' '
-	awk /`echo "$(TAGS)" | tr -d ' '`/{print} $(PACKAGE) | sed '/^#/d' > Filelist
-	@while IFS= read -r line; \
-	do \
-		file=`echo $$line | cut -d" " -f 1`; \
-		dir=`echo $$line | cut -d" " -f 2`; \
-		link=no; \
-		if [ "$${dir:0:3}" == ":::" ]; \
-		then \
-			instdir=$${dir:3}; \
-			link=yes; \
-		else \
-			if [ "$${dir:0:2}" == "::" ]; \
-			then \
-				instdir=$${dir:2}; \
-			else \
-				instdir=bin; \
-			fi; \
-		fi; \
-		echo install $$file to $$instdir; \
-		if [ ! -e $$file ]; \
-		then \
-			echo "File specified in $(PACKAGE) not found: $$file"; \
-			exit 1; \
-		else \
-			if [ "$$link" == "yes" ]; \
-			then \
-				echo ln -s $$(basename $$file) $$instdir; \
-				ln -s $$(basename $$file) $(DESTDIR)/bin/$$instdir; \
-			else \
-				[ ! -d $$file ] && mkdir -p $$(dirname $(DESTDIR)/$$instdir); \
-				[ -f $$file ] && $(INSTALL) $$file $(DESTDIR)/$$instdir; \
-			fi; \
-		fi \
-	done < Filelist
-	rm Filelist
+install: _install.mk
+	$(MAKE) -f _install.mk install
+	rm -f _install.mk Filelist ExtFilelist
 ifdef CONFIG_APP_BUSYELKS
 	$(MAKE) -C busyelks links
 endif
-# install external apps
-	awk /`echo "$(TAGS)" | tr -d ' '`/{print} $(EXTPACKAGE) | sed '/^#/d' > Filelist
-	@while IFS= read -r line; \
-	do \
-		file=../extapps/`echo $$line | cut -d" " -f 1`; \
-		dir=`echo $$line | cut -d" " -f 2`; \
-		link=no; \
-		if [ "$${dir:0:3}" == ":::" ]; \
-		then \
-			instdir=$${dir:3}; \
-			link=yes; \
-		else \
-			if [ "$${dir:0:2}" == "::" ]; \
-			then \
-				instdir=$${dir:2}; \
-			else \
-				instdir=bin; \
-				[ ! -d $(DESTDIR)/$$instdir ] && mkdir -p $(DESTDIR)/$$instdir; \
-			fi; \
-		fi; \
-		echo install $$file to $$instdir; \
-		if [ ! -e $$file ]; \
-		then \
-			echo "SKIPPED $$file (file not found)"; \
-		else \
-			if [ "$$link" == "yes" ]; \
-			then \
-				echo ln -s $$(basename $$file) $$instdir; \
-				ln -s $$(basename $$file) $(DESTDIR)/bin/$$instdir; \
-			else \
-				[ ! -d $$file ] && mkdir -p $$(dirname $(DESTDIR)/$$instdir); \
-				[ -f $$file ] && $(INSTALL) $$file $(DESTDIR)/$$instdir; \
-			fi; \
-		fi \
-	done < Filelist
-	rm Filelist
-	for DIR in $(INSTDIRS); do $(MAKE) -C $$DIR install || exit 1; done
 ifdef CONFIG_APPS_HD
 # install DCC via external shell script for now
 	if [ -e $(TOPDIR)/extapps/dcc/src/C/c88 ]; \
@@ -299,6 +228,77 @@ ifdef CONFIG_APP_MAN_PAGES
 	cp -rp man/man8 $(DESTDIR)/lib
 	-compress -b 12 $(DESTDIR)/lib/man8/*
 endif
+
+_install.mk: FORCE
+	@echo "TAGS=$(TAGS)" | tr -d ' '
+	awk /`echo "$(TAGS)" | tr -d ' '`/{print} $(PACKAGE) | sed '/^#/d' > Filelist
+	{ \
+	  ALL=""; \
+	  while IFS= read -r line; do \
+		file=$$(echo $$line | cut -d" " -f 1); \
+		dir=$$(echo $$line | cut -d" " -f 2); \
+		if [ "$${dir:0:3}" = ":::" ]; then \
+			instdir=$${dir:3}; \
+			target="$(DESTDIR)/bin/$$instdir"; \
+			ALL="$$ALL $$target"; \
+			echo "$$target:"; \
+			echo '	mkdir -p $$(@D)'; \
+			echo '	ln -sf '"$$(basename $$file)"' $$@'; \
+			echo; \
+		elif [ "$${dir:0:2}" = "::" ]; then \
+			instdir=$${dir:2}; \
+			target="$(DESTDIR)/$$instdir"; \
+			ALL="$$ALL $$target"; \
+			echo "$$target:"; \
+			echo '	mkdir -p $$(@D)'; \
+			echo '	$(INSTALL)' "$$file" '$$@'; \
+			echo; \
+		else \
+			target="$(DESTDIR)/bin/$$(basename $$file)"; \
+			ALL="$$ALL $$target"; \
+			echo "$$target:"; \
+			echo '	mkdir -p $$(@D)'; \
+			echo '	$(INSTALL)' "$$file" '$$@'; \
+			echo; \
+		fi; \
+	  done < Filelist; \
+	  echo "_install: $$ALL"; \
+	} > $@
+	awk /`echo "$(TAGS)" | tr -d ' '`/{print} $(EXTPACKAGE) | sed '/^#/d' > ExtFilelist
+	{ \
+	  ALL=""; \
+	  while IFS= read -r line; do \
+		file=../extapps/$$(echo $$line | cut -d" " -f 1); \
+		dir=$$(echo $$line | cut -d" " -f 2); \
+		if [ "$${dir:0:3}" = ":::" ]; then \
+			instdir=$${dir:3}; \
+			target="$(DESTDIR)/bin/$$instdir"; \
+			ALL="$$ALL $$target"; \
+			echo "$$target:"; \
+			echo '	mkdir -p $$(@D)'; \
+			echo '	ln -sf '"$$(basename $$file)"' $$@'; \
+			echo; \
+		elif [ "$${dir:0:2}" = "::" ]; then \
+			instdir=$${dir:2}; \
+			target="$(DESTDIR)/$$instdir"; \
+			ALL="$$ALL $$target"; \
+			echo "$$target:"; \
+			echo '	mkdir -p $$(@D)'; \
+			echo '	$(INSTALL)' "$$file" '$$@'; \
+			echo; \
+		else \
+			target="$(DESTDIR)/bin/$$(basename $$file)"; \
+			ALL="$$ALL $$target"; \
+			echo "$$target:"; \
+			echo '	mkdir -p $$(@D)'; \
+			echo '	$(INSTALL)' "$$file" '$$@'; \
+			echo; \
+		fi; \
+	  done < ExtFilelist; \
+	  echo "install: _install"; \
+	} >> $@
+
+FORCE:
 
 
 ###############################################################################
