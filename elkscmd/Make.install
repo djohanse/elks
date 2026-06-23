@@ -1,4 +1,6 @@
 # ELKSCMD install Makefile
+# Generates and runs a parallel-safe _install.mk fragment so that
+# 'make -j' can install many files concurrently.
 
 ifndef TOPDIR
 $(error TOPDIR is not defined, ELKS not configured yet)
@@ -17,7 +19,7 @@ EXTPACKAGE=$(TOPDIR)/elkscmd/ExtApplications
 # Install destination
 DESTDIR=$(TOPDIR)/target
 TAGS=
-# Old-style installation
+# Old-style installation (unused with _install.mk)
 INSTDIRS=
 export INSTALL LN DESTDIR
 
@@ -186,6 +188,12 @@ TAGS += :end
 ###############################################################################
 #
 # Install selected files.
+#
+# Two-step parallel install:
+#   1. _install.mk is generated with one Make rule per file (no prereqs,
+#      so Make never tries to build source files via implicit rules).
+#   2. The generated file is invoked via '$(MAKE) -f _install.mk install',
+#      allowing 'make -j' to copy files in parallel.
 
 .PHONY: install
 
@@ -229,9 +237,26 @@ ifdef CONFIG_APP_MAN_PAGES
 	-compress -b 12 $(DESTDIR)/lib/man8/*
 endif
 
+# The FORCE dependency ensures _install.mk is regenerated every time
+# make is invoked (so the file list always reflects current config).
+# FORCE is an empty target with no prereqs — Make always considers
+# it out of date.
 _install.mk: FORCE
 	@echo "TAGS=$(TAGS)" | tr -d ' '
+	# Filter Applications by tag set, producing a list of (source, destdir) pairs
 	awk /`echo "$(TAGS)" | tr -d ' '`/{print} $(PACKAGE) | sed '/^#/d' > Filelist
+	# Generate per-file Make rules for internal applications
+	# Three install modes based on the destdir prefix:
+	#   :::<name>  — symlink into /bin/<name>
+	#   ::<path>   — install to a custom path under DESTDIR
+	#   <default>  — install to DESTDIR/bin/<basename>
+	#
+	# Rules have NO Make prerequisites (no ": source" after target) so that
+	# Make never tries to build the source binary via implicit rules.
+	# Source paths are used directly in recipe bodies instead.
+	#
+	# $$(@D) is written literally into the generated file so that the
+	# child 'make -f _install.mk' expands it to the target's directory.
 	{ \
 	  ALL=""; \
 	  while IFS= read -r line; do \
@@ -264,6 +289,7 @@ _install.mk: FORCE
 	  done < Filelist; \
 	  echo "_install: $$ALL"; \
 	} > $@
+	# Same process for external applications (under extapps/)
 	awk /`echo "$(TAGS)" | tr -d ' '`/{print} $(EXTPACKAGE) | sed '/^#/d' > ExtFilelist
 	{ \
 	  ALL=""; \
@@ -298,6 +324,7 @@ _install.mk: FORCE
 	  echo "install: _install"; \
 	} >> $@
 
+# Empty phony target — always out of date, forces _install.mk to rebuild
 FORCE:
 
 
