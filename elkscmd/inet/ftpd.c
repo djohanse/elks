@@ -115,6 +115,7 @@ static int nofork = 0;
 static int timeout = 900;
 static int maxtimeout = 7200;
 static int controlfd;
+static int pasv_listen_fd = -1;		/* listening fd from PASV — accept deferred */
 static char real_ip[20];
 
 int do_nlist(int, char *);
@@ -482,7 +483,9 @@ int do_nlist(int dfd, char *iobuf)
 	return 0;
 }
 
-/* Passive mode: Server listens for incoming data connection */
+/* Passive mode: Server listens for incoming data connection.
+ * Sends 227 then returns immediately — accept is deferred to the
+ * data command handler (LIST/RETR) so ftpd never blocks here. */
 int do_pasv(int *datafd) {
 	int fd;
 	unsigned int i = 1, port = 0;
@@ -545,18 +548,11 @@ int do_pasv(int *datafd) {
 	}
     	write(controlfd, str, strlen(str));
 	if (debug) printf("%s", str);
-	i = sizeof(pasv);
-	//FIXME: The accept() will block forever - this will happen in QEMU if an external client
-	// requests a passive mode connection.
-	if ((*datafd = accept(fd, (struct sockaddr *)&pasv, (unsigned int *)&i)) < 0 ) {
-		perror("accept");
-		close(fd);
-		return -1;
-	}
-	close(fd);
-	if (debug) 
-		printf("Accepted connection from %s/%u on fd %d\n", in_ntoa(pasv.sin_addr.s_addr), ntohs(pasv.sin_port), *datafd);
 
+	/* Save fd for deferred accept — do not block here */
+	if (pasv_listen_fd >= 0)
+		close(pasv_listen_fd);
+	pasv_listen_fd = fd;
 	return 0;
 }
 
@@ -844,11 +840,15 @@ int main(int argc, char **argv) {
 
 				switch (code) {
 
-				case CMD_PORT:
-					if (datafd >= 0) { /* connection already open, close it! */
-						close(datafd);
-						datafd = -1;
-					}
+	case CMD_PORT:
+		if (datafd >= 0) { /* connection already open, close it! */
+			close(datafd);
+			datafd = -1;
+		}
+		if (pasv_listen_fd >= 0) {	/* cancel pending PASV */
+			close(pasv_listen_fd);
+			pasv_listen_fd = -1;
+		}
     					if (get_client_ip_port(command, client_ip, &client_port) < 0) {
 						printf("PORT cmd error.\n");
 						break;
@@ -861,35 +861,56 @@ int main(int argc, char **argv) {
 						send_reply(200, "PORT command successful");
 					break;
 
-				case CMD_PASV: /* Enter Passive mode */
-					if (datafd >= 0) { /* connection already open, close it! */
-						close(datafd);
-						datafd = -1;
-					}
-					if (do_pasv(&datafd) < 0) {
-						send_reply(502, "PASV: Cannot open server socket");
-						close(datafd);
-						datafd = -1;
-					}
-					break;
-
-				case CMD_NLST:
-    				case CMD_LIST:	/* List files */
-					if (datafd >= 0) {
-    						if (!do_list(datafd, command))
-		    				    write(controlfd, complete, strlen(complete));
-					} else {
-						send_reply(503, "Bad sequence of commands");
-						close(datafd);
-					}
+			case CMD_PASV: /* Enter Passive mode */
+				if (datafd >= 0) {
+					close(datafd);
 					datafd = -1;
-					break;
+				}
+				if (pasv_listen_fd >= 0) {
+					close(pasv_listen_fd);
+					pasv_listen_fd = -1;
+				}
+				if (do_pasv(&datafd) < 0)
+					datafd = -1;	/* error already sent by do_pasv */
+				break;
 
-    				case CMD_RETR: /* Retrieve files */
-					if (datafd < 0) { /* no data connection, don't even try ... */
-						send_reply(426, "Connection closed, transfer aborted");
-						break;
-					}
+			case CMD_NLST:
+			case CMD_LIST:	/* List files */
+				if (datafd < 0 && pasv_listen_fd >= 0) {
+					struct sockaddr_in pasv;
+					unsigned int slen = sizeof(pasv);
+					fcntl(pasv_listen_fd, F_SETFL, O_NONBLOCK);
+					datafd = accept(pasv_listen_fd, (struct sockaddr *)&pasv, &slen);
+					close(pasv_listen_fd);
+					pasv_listen_fd = -1;
+					if (datafd >= 0 && debug)
+						printf("Accepted PASV connection from %s/%u on fd %d\n",
+							in_ntoa(pasv.sin_addr.s_addr), ntohs(pasv.sin_port), datafd);
+				}
+				if (datafd >= 0) {
+					if (!do_list(datafd, command))
+					    write(controlfd, complete, strlen(complete));
+				} else {
+					send_reply(425, "Can't open data connection");
+				}
+				if (datafd >= 0)
+					close(datafd);
+				datafd = -1;
+				break;
+
+			case CMD_RETR: /* Retrieve files */
+				if (datafd < 0 && pasv_listen_fd >= 0) {
+					struct sockaddr_in pasv;
+					unsigned int slen = sizeof(pasv);
+					fcntl(pasv_listen_fd, F_SETFL, O_NONBLOCK);
+					datafd = accept(pasv_listen_fd, (struct sockaddr *)&pasv, &slen);
+					close(pasv_listen_fd);
+					pasv_listen_fd = -1;
+				}
+				if (datafd < 0) {
+					send_reply(425, "Can't open data connection");
+					break;
+				}
     					if (do_retr(datafd, command) > 0 ) 
 		    				write(controlfd, complete, strlen(complete));
 					/* if there was an error, the error reply has already been sent, 
@@ -899,11 +920,19 @@ int main(int argc, char **argv) {
 					datafd = -1;
 					break;
 
-    				case CMD_STOR: /* Store files */
-					if (datafd < 0) { /* no data connection, don't even try ... */
-						send_reply(426, "Connection closed, transfer aborted");
-						break;
-					}
+			case CMD_STOR: /* Store files */
+				if (datafd < 0 && pasv_listen_fd >= 0) {
+					struct sockaddr_in pasv;
+					unsigned int slen = sizeof(pasv);
+					fcntl(pasv_listen_fd, F_SETFL, O_NONBLOCK);
+					datafd = accept(pasv_listen_fd, (struct sockaddr *)&pasv, &slen);
+					close(pasv_listen_fd);
+					pasv_listen_fd = -1;
+				}
+				if (datafd < 0) { /* no data connection, don't even try ... */
+					send_reply(425, "Can't open data connection");
+					break;
+				}
     					if ((code = do_stor(datafd, command)) > 0) {
 		    				write(controlfd, complete, strlen(complete));
 						close(datafd);
@@ -1042,12 +1071,17 @@ int main(int argc, char **argv) {
 					}
 					break;
 #endif
-				case CMD_CLOSE:	/* Since login is outside the main loop, CLOSE means QUIT */
-				case CMD_QUIT:
-					quit = TRUE;
-					send_reply(221, "Goodbye");
+			case CMD_CLOSE:	/* Since login is outside the main loop, CLOSE means QUIT */
+			case CMD_QUIT:
+				quit = TRUE;
+				send_reply(221, "Goodbye");
+				if (datafd >= 0)
 					close(datafd);
-					break;
+				if (pasv_listen_fd >= 0) {
+					close(pasv_listen_fd);
+					pasv_listen_fd = -1;
+				}
+				break;
 
 				case CMD_UNKNOWN:
 				default:
