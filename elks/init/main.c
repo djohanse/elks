@@ -18,6 +18,7 @@
 #include <linuxmt/timer.h>
 #include <linuxmt/debug.h>
 #include <arch/segment.h>
+#include <arch/seg286.h>
 #include <arch/ports.h>
 #include <arch/irq.h>
 #include <arch/io.h>
@@ -43,7 +44,7 @@ struct netif_parms netif_parms[MAX_ETHS] = {
     { WD_IRQ, WD_PORT, WD_RAM, WD_FLAGS },
     { EL3_IRQ, EL3_PORT, 0, EL3_FLAGS },
 };
-seg_t kernel_cs, kernel_ds;
+seg_t kernel_cs, kernel_ds;     /* always segment values even in PM */
 int root_mountflags;
 int tracing;
 int nr_ext_bufs, nr_xms_bufs, nr_map_bufs;
@@ -111,6 +112,14 @@ static void idle_loop(void);
 void start_kernel(void)
 {
     //tracing = TRACE_KSTACK | TRACE_ISTACK;
+#ifdef CONFIG_286_PMODE
+    /* Build GDT and enter protected mode before calling far_start_kernel,
+     * as the setup.S kernel loader already relocated all .fartext CS segment
+     * references to SEL_KFTEXT selectors. The system never returns to real
+     * mode and BIOS services can no longer be called.
+     */
+    gdt_init();
+#endif
     far_start_kernel();             /* start executing in reusable memory */
 }
 
@@ -262,7 +271,10 @@ static void INITPROC kernel_init(void)
 
 #ifdef CONFIG_FARTEXT_KERNEL
     /* add .farinit.init section to main memory free list */
-    seg_t     init_seg = ((unsigned long)(void __far *)__start_fartext_init) >> 16;
+    seg_t     init_seg = _FP_SEG(__start_fartext_init);
+#ifdef CONFIG_286_PMODE
+    init_seg = desc_base(init_seg) >> 4;    /* convert selector to physical segment */
+#endif
     seg_t s = init_seg + (((word_t)(void *)__start_fartext_init + 15) >> 4);
     seg_t e = init_seg + (((word_t)(void *)  __end_fartext_init + 15) >> 4);
     debug("init: seg %04x to %04x size %04x (%d)\n", s, e, (e - s) << 4, (e - s) << 4);
@@ -285,7 +297,7 @@ static void INITPROC kernel_banner(seg_t init, seg_t extra)
            (unsigned)_endbss - (unsigned)_enddata, heapsize);
     printk("Kernel text %x ", kernel_cs);
 #ifdef CONFIG_FARTEXT_KERNEL
-    printk("ftext %x init %x ", (unsigned)((long)kernel_init >> 16), init);
+    printk("ftext %x init %x ", kernel_ftext, init);
 #endif
     printk("data %x end %x top %x %u+%u+%uK free\n",
            kernel_ds, membase, memend, (int) ((memend - membase) >> 6),
@@ -528,7 +540,7 @@ static int INITPROC parse_options(void)
     char *next;
 
     /* copy /bootopts loaded by boot loader at 0050:0000*/
-    fmemcpyb(opts.options, kernel_ds, 0, DEF_OPTSEG, sizeof(opts.options));
+    fmemcpyb(opts.options, KERNEL_DS, 0, OPTSEG, sizeof(opts.options));
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
     /* check file starts with ##, one or two sectors, max 1023 bytes or 511 one sector */

@@ -83,6 +83,7 @@
 #include <linuxmt/config.h>
 #include <linuxmt/devnum.h>
 #include <linuxmt/boot.h>
+#include <arch/segment.h>
 
 // Relocating loader debug option
 debug_output    =       0       // display various register values during execution
@@ -699,8 +700,9 @@ data_reloc:
 // Load registers as kernel expects
 
 	mov -22(%bp),%ax   // kernel .data segment
-	mov %ax,%es
 	mov %ax,%ds
+	mov -20(%bp),%ax   // kernel .fartext segment
+	mov %ax,%es
 	mov -2(%bp),%bx    // code size
 	mov -4(%bp),%si    // data size
 	mov -6(%bp),%dx    // bss size
@@ -714,10 +716,11 @@ data_reloc:
 	push %cx
 
 	.hex4sp	%ss,"\nDone SS:"
-	.hex4sp	%ds,"DS/ES:"
-	.hex4sp	%bx,".text size:"
-	.hex4sp	%di,".fartext size:"
-	.hex4sp	%si,".data size:"
+	.hex4sp	%ds,"DS:"
+	.hex4sp	%bx,".text sz:"
+	.hex4sp	%es,".ftext:"
+	.hex4sp	%di,".ftext sz:"
+	.hex4sp	%si,".data sz:"
 	.hex4sp	%ax,"\nJump CS:"
 	.hex4sp	%cx,"entry:"
 	.if debug_output
@@ -755,6 +758,22 @@ relocat:
 
 	mov -22(%bp),%ax   // kernel .data segment
 3:
+#ifdef CONFIG_286_PMODE
+	// PM: the branches above computed a real-mode paragraph; replace it with the
+	// matching GDT selector (KCODE/KFTEXT/KDATA) so the kernel's far refs resolve
+	// in protected mode.  %si still points at the relocation record (symndx at 4).
+	mov 4(%si),%ax            // r_symndx
+	cmp $-2,%ax               // S_TEXT
+	jne 1f
+	mov $SEL_KCODE,%ax
+	jmp 3f
+1:	cmp $-5,%ax               // S_FTEXT
+	jne 2f
+	mov $SEL_KFTEXT,%ax
+	jmp 3f
+2:	mov $SEL_KDATA,%ax        // S_DATA -> SEL_KDATA
+3:
+#endif
 	mov %ax,%es:(%di)
 
 	.if debug_loader

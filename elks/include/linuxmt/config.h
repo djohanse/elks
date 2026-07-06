@@ -197,18 +197,20 @@
 #  define TRACKSEGSZ    0           /* no TRACKSEG buffer */
 #  endif
 #endif
-#define TRACKSEG        (DMASEG+(DMASEGSZ>>4))
+#define SEG_TRACK       (DMASEG+(DMASEGSZ>>4))
 #define DMASEGEND       (DMASEG+(DMASEGSZ>>4)+(TRACKSEGSZ>>4))
 #else
 #define DMASEGEND       (DMASEG+(DMASEGSZ>>4))
 #endif
 
-/* Define segment locations of low memory, must not overlap */
+/* Define segment locations of low and other memory, must not overlap */
+#define SEG_BIOSDATA    0x0040      /* BIOS data area (real-mode seg 0x40) */
+#define SEG_VIDEO       0xB800      /* text video RAM (real-mode seg 0xB800) */
 
 #ifdef CONFIG_ROMCODE
 #define DMASEG          0x80        /* start of floppy sector buffer */
 #define KERNEL_DATA     DMASEGEND   /* kernel data segment */
-#define SETUP_DATA      CONFIG_ROM_SETUP_DATA
+#define SEG_SETUP_DATA  CONFIG_ROM_SETUP_DATA
 
 #else /* !CONFIG_ROMCODE */
 
@@ -219,7 +221,7 @@
 #define REL_INITSEG     0x90        /* 0x200 bytes setup data */
 #define DMASEG          0xB0        /* start of floppy sector buffer */
 #define REL_SYSSEG      DMASEGEND   /* kernel code segment */
-#define SETUP_DATA      REL_INITSEG
+#define SEG_SETUP_DATA  REL_INITSEG
 #endif
 
 #ifdef CONFIG_ARCH_PC98
@@ -229,7 +231,7 @@
 #define REL_INITSEG     0xA0        /* 0x200 bytes setup data */
 #define DMASEG          0xC0        /* start of floppy sector buffer */
 #define REL_SYSSEG      DMASEGEND   /* kernel code segment */
-#define SETUP_DATA      REL_INITSEG
+#define SEG_SETUP_DATA  REL_INITSEG
 #endif
 
 #endif /* !CONFIG_ROMCODE */
