@@ -65,10 +65,16 @@ all: $(ALL)
 lib:
 	$(MAKE) -C lib all
 
-ia16: lib
+ia16: $(IA16DIRS)
+
+$(IA16DIRS): lib checkconfig
+	$(MAKE) -C $@ all
+
+checkconfig:
 	@if [ ! -e $(TOPDIR)/include/autoconf.h ]; \
 	then echo -e "\n*** ERROR: You must configure ELKS first ***\n" >&2; exit 1; fi
-	for DIR in $(IA16DIRS); do $(MAKE) -C $$DIR all || exit 1; done
+
+.PHONY: $(IA16DIRS) lib checkconfig ia16
 
 owc:
 	for DIR in $(OWCDIRS); do $(MAKE) -C $$DIR -f Makefile.owc all || exit 1; done
@@ -76,9 +82,11 @@ owc:
 c86:
 	for DIR in $(C86DIRS); do $(MAKE) -C $$DIR -f Makefile.c86 all || exit 1; done
 
-clean: owclean c86clean
+clean: owclean c86clean $(IA16DIRS:%=%/clean)
 	$(MAKE) -C lib clean
-	for DIR in $(IA16DIRS); do $(MAKE) -C $$DIR clean || exit 1; done
+
+%/clean:
+	$(MAKE) -C $* clean
 
 owclean:
 	for DIR in $(OWCDIRS); do $(MAKE) -C $$DIR -f Makefile.owc clean || exit 1; done

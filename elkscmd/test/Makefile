@@ -10,11 +10,17 @@ SUBDIRS =  \
 
 .PHONY: $(SUBDIRS)
 
-all: $(SUBDIRS)
-	@for DIR in $(SUBDIRS); do $(MAKE) -C $$DIR all || exit 1; done
+all: $(SUBDIRS:%=%/all)
 
-install: $(SUBDIRS)
-	@for DIR in $(SUBDIRS); do $(MAKE) -C $$DIR install || exit 1; done
+install: $(SUBDIRS:%=%/install)
 
-clean: $(SUBDIRS)
-	@for DIR in $(SUBDIRS); do $(MAKE) -C $$DIR clean || exit 1; done
+clean: $(SUBDIRS:%=%/clean)
+
+%/all:
+	$(MAKE) -C $* all
+
+%/install:
+	$(MAKE) -C $* install
+
+%/clean:
+	$(MAKE) -C $* clean
