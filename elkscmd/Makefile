@@ -74,13 +74,17 @@ checkconfig:
 	@if [ ! -e $(TOPDIR)/include/autoconf.h ]; \
 	then echo -e "\n*** ERROR: You must configure ELKS first ***\n" >&2; exit 1; fi
 
-.PHONY: $(IA16DIRS) lib checkconfig ia16
+.PHONY: $(IA16DIRS) lib checkconfig ia16 owc c86 owclean c86clean
 
-owc:
-	for DIR in $(OWCDIRS); do $(MAKE) -C $$DIR -f Makefile.owc all || exit 1; done
+owc: $(OWCDIRS:%=owc-%)
 
-c86:
-	for DIR in $(C86DIRS); do $(MAKE) -C $$DIR -f Makefile.c86 all || exit 1; done
+owc-%: checkconfig
+	$(MAKE) -C $* -f Makefile.owc all
+
+c86: $(C86DIRS:%=c86-%)
+
+c86-%: checkconfig
+	$(MAKE) -C $* -f Makefile.c86 all
 
 clean: owclean c86clean $(IA16DIRS:%=%/clean)
 	$(MAKE) -C lib clean
@@ -88,11 +92,15 @@ clean: owclean c86clean $(IA16DIRS:%=%/clean)
 %/clean:
 	$(MAKE) -C $* clean
 
-owclean:
-	for DIR in $(OWCDIRS); do $(MAKE) -C $$DIR -f Makefile.owc clean || exit 1; done
+owclean: $(OWCDIRS:%=owclean-%)
 
-c86clean:
-	for DIR in $(C86DIRS); do $(MAKE) -C $$DIR -f Makefile.c86 clean || exit 1; done
+owclean-%:
+	$(MAKE) -C $* -f Makefile.owc clean
+
+c86clean: $(C86DIRS:%=c86clean-%)
+
+c86clean-%:
+	$(MAKE) -C $* -f Makefile.c86 clean
 
 install:
 	$(MAKE) -f Make.install "CONFIG=$(TOPDIR)/.config"
