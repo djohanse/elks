@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/audio.h>
+#include "adpcm.h"
 
 #define DEFAULT_RATE    8000L
 #define MIN_RATE        4000L       /* driver limits */
@@ -36,11 +37,14 @@
 #define MAX_BUFSIZE     4096        /* == the driver's default DMA block */
 
 static unsigned char buf[MAX_BUFSIZE];
+static unsigned char pcm[MAX_BUFSIZE];
+static int adpcm;
 static audio_errinfo einfo;         /* 104 bytes: keep off the small stack */
 
 static void usage(void)
 {
-    fprintf(stderr, "usage: play [-r rate] [-b bytes] [file]\n");
+    fprintf(stderr, "usage: play [-r rate] [-b bytes] [-4] [file]\n");
+    fprintf(stderr, "  -4  the file is Creative 4-bit ADPCM, expanded here\n");
     fprintf(stderr, "       raw unsigned 8-bit mono PCM, %ld-%ld Hz,"
         " default %ld\n", MIN_RATE, MAX_RATE, DEFAULT_RATE);
     fprintf(stderr, "G Keet, 2026\n");
@@ -99,7 +103,7 @@ int main(int argc, char **argv)
     int c, n, err = 0;
     int32_t val;
 
-    while ((c = getopt(argc, argv, "r:b:")) != -1) {
+    while ((c = getopt(argc, argv, "r:b:4")) != -1) {
         switch (c) {
         case 'r':
             rate = atol(optarg);        /* atoi would wrap above 32767 */
@@ -120,6 +124,9 @@ int main(int argc, char **argv)
             bufsize = (int)b;
             break;
         }
+        case '4':
+            adpcm = 1;
+            break;
         default:
             usage();
         }
@@ -180,7 +187,8 @@ int main(int argc, char **argv)
         bufsize = (int)val;
 
     for (;;) {
-        n = read_full(in, buf, bufsize);
+        /* half a block of packed bytes fills the whole block once unpacked */
+        n = read_full(in, buf, adpcm? bufsize / 2: bufsize);
         if (n < 0) {
             perror("read");
             err = 1;
@@ -188,7 +196,9 @@ int main(int argc, char **argv)
         }
         if (n == 0)
             break;
-        if (write_all(dsp, buf, n) < 0) {
+        if (adpcm)
+            n = adpcm_expand(pcm, buf, n);
+        if (write_all(dsp, adpcm? pcm: buf, n) < 0) {
             perror("/dev/dsp");
             err = 1;
             break;

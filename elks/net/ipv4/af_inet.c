@@ -39,7 +39,8 @@ static sem_t rwlock;    /* global inet_read/write semaphore*/
 
 int inet_process_tcpdev(register char *buf, int len)
 {
-    register struct socket *sock;
+    struct socket *sock, *newsock;
+    struct tdb_accept_ret *ar;
 
     sock = ((struct tdb_return_data *)buf)->sock;
     debug_net("INET(%P) process_tcpdev sock %x type %d wait %x\n",
@@ -77,8 +78,27 @@ int inet_process_tcpdev(register char *buf, int len)
         wake_up(sock->wait);
         break;
 
-    case TDT_RETURN:
     case TDT_ACCEPT:
+        /*
+         * Copy accept result into newsock so we can auto-release bufin_sem
+         * immediately and not depend on the woken process running fast enough
+         * to consume tdin_buf before ktcp writes its next reply.
+         */
+        ar = (struct tdb_accept_ret *)buf;
+        newsock = ar->newsock;
+        if (newsock) {
+            newsock->remaddr = ar->addr_ip;
+            newsock->remport = ar->addr_port;
+            newsock->localaddr = ar->locaddr;
+            newsock->localport = ar->locport;
+            newsock->retval = ar->ret_value;
+            newsock->flags |= SF_CONNECT;
+        }
+        tcpdev_clear_data_avail();
+        wake_up(sock->wait);
+        break;
+
+    case TDT_RETURN:
     case TDT_BIND:
         debug_net("INET(%P) retval %d bufin %d\n",
             ((struct tdb_return_data *)buf)->ret_value, bufin_sem);
@@ -227,6 +247,7 @@ static int inet_accept(register struct socket *sock, struct socket *newsock, int
     int ret;
 
     debug_tune("INET(%P) accept wait sock %x newsock %x\n", sock, newsock);
+    newsock->flags &= ~SF_CONNECT;    /* cleared until reply arrives */
     cmd = (struct tdb_accept *)get_tdout_buf();
     cmd->cmd = TDC_ACCEPT;
     cmd->sock = sock;
@@ -235,25 +256,18 @@ static int inet_accept(register struct socket *sock, struct socket *newsock, int
 
     tcpdev_inetwrite(cmd, sizeof(struct tdb_accept));
 
-    /* Sleep until tcpdev has news */
-    do {        /* always sleep once to prevent accept race condition #1082 */
-
+    /* Sleep until inet_process_tcpdev stores the reply into newsock */
+    do {
+        /* Always sleep once to prevent accept race condition #1082 (unneeded anymore?) */
         interruptible_sleep_on(sock->wait);
-        //interruptible_sleep_on(newsock->wait);
-
         if (current->signal) {
-            debug_net("INET(%P) accept RESTARTSYS bufin %d\n", bufin_sem);
+            debug_net("INET(%P) accept RESTARTSYS\n");
             return -ERESTARTSYS;
         }
-    } while (bufin_sem == 0);
+    } while (!(newsock->flags & SF_CONNECT));
 
     debug_tune("INET(%P) accepted sock %x newsock %x\n", sock, newsock);
-    newsock->remaddr = ((struct tdb_accept_ret *)tdin_buf)->addr_ip;
-    newsock->remport = ((struct tdb_accept_ret *)tdin_buf)->addr_port;
-    newsock->localaddr = ((struct tdb_accept_ret *)tdin_buf)->locaddr;
-    newsock->localport = ((struct tdb_accept_ret *)tdin_buf)->locport;
-    ret = ((struct tdb_accept_ret *)tdin_buf)->ret_value;
-    tcpdev_clear_data_avail();
+    ret = newsock->retval;
     if (ret >= 0) {
         newsock->state = SS_CONNECTED;
         ret = 0;
@@ -404,24 +418,6 @@ static int inet_select(register struct socket *sock, int sel_type)
     return 0;
 }
 
-static int inet_send(struct socket *sock, void *buff, int len, int nonblock,
-                     unsigned int flags)
-{
-    if (flags != 0)
-        return -EINVAL;
-
-    return inet_write(sock, buff, len, nonblock);
-}
-
-static int inet_recv(struct socket *sock, void *buff, int len, int nonblock,
-                     unsigned int flags)
-{
-    if (flags != 0)
-        return -EINVAL;
-
-    return inet_read(sock, buff, len, nonblock);
-}
-
 static int inet_getname(struct socket *sock, struct sockaddr *usockaddr,
         int *usockaddr_len, int peer)
 {
@@ -448,6 +444,26 @@ int not_implemented(void)
     return 0;
 }
 
+#if UNUSED
+static int inet_send(struct socket *sock, void *buff, int len, int nonblock,
+                     unsigned int flags)
+{
+    if (flags != 0)
+        return -EINVAL;
+
+    return inet_write(sock, buff, len, nonblock);
+}
+
+static int inet_recv(struct socket *sock, void *buff, int len, int nonblock,
+                     unsigned int flags)
+{
+    if (flags != 0)
+        return -EINVAL;
+
+    return inet_read(sock, buff, len, nonblock);
+}
+#endif
+
 static struct proto_ops inet_proto_ops = {
     AF_INET,
     inet_create,
@@ -463,8 +479,6 @@ static struct proto_ops inet_proto_ops = {
     inet_select,
     not_implemented,    /* inet_ioctl */
     inet_listen,
-    inet_send,
-    inet_recv,
 };
 
 void inet_proto_init(struct net_proto *pro)

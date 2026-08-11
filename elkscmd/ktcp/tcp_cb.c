@@ -295,32 +295,46 @@ void tcpcb_push_data(void)
 	    notify_data_avail(&n->tcpcb);
 }
 
-/* There must be free space greater-equal than len or will wrap*/
+/* There must be free space greater-equal than len */
 void tcpcb_buf_write(struct tcpcb_s *cb, unsigned char *data, int len)
 {
-    int tail = cb->buf_tail;
+    unsigned int tail = cb->buf_tail;
+    unsigned int ulen = len;
+    unsigned int n = cb->buf_size - tail;	/* room before the wrap */
 
-    while (--len >= 0) {
-	cb->buf_base[tail++] = *data++;
-	if (tail >= cb->buf_size)
-	    tail = 0;
-	cb->buf_used++;
+    if (ulen < n)
+	n = ulen;
+    memcpy(cb->buf_base + tail, data, n);
+    tail += n;
+    if (tail >= cb->buf_size)
+	tail = 0;
+    if (ulen > n) {				/* wrapped */
+	memcpy(cb->buf_base, data + n, ulen - n);
+	tail = ulen - n;
     }
     cb->buf_tail = tail;
+    cb->buf_used += ulen;
 }
 
 /* same here */
 void tcpcb_buf_read(struct tcpcb_s *cb, unsigned char *data, int len)
 {
-    int head = cb->buf_head;
+    unsigned int head = cb->buf_head;
+    unsigned int ulen = len;
+    unsigned int n = cb->buf_size - head;
 
-    while (--len >= 0) {
-	*data++= cb->buf_base[head++];
-	if (head >= cb->buf_size)
-	    head = 0;
-	cb->buf_used--;
+    if (ulen < n)
+	n = ulen;
+    memcpy(data, cb->buf_base + head, n);
+    head += n;
+    if (head >= cb->buf_size)
+	head = 0;
+    if (ulen > n) {
+	memcpy(data + n, cb->buf_base, ulen - n);
+	head = ulen - n;
     }
     cb->buf_head = head;
+    cb->buf_used -= ulen;
 }
 
 /* congestion avoidance: increment cwnd once per rtt */

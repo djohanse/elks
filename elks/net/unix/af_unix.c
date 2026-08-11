@@ -537,8 +537,9 @@ static int unix_listen(struct socket *sock, int backlog)
     return 0;
 }
 
-static int unix_send(struct socket *sock,
-		     void *buff, int len, int nonblock, unsigned int flags)
+#if UNUSED
+static int unix_send(struct socket *sock, void *buff, int len, int nonblock,
+	unsigned int flags)
 {
     if (flags != 0)
 	return -EINVAL;
@@ -546,18 +547,15 @@ static int unix_send(struct socket *sock,
     return unix_write(sock, (char *) buff, len, nonblock);
 }
 
-/*
- *      Receive data. This version of AF_UNIX also lacks MSG_PEEK 8(
- */
-
-static int
-unix_recv(struct socket *sock, void *buff, int len, int nonblock, unsigned flags)
+static int unix_recv(struct socket *sock, void *buff, int len, int nonblock,
+	unsigned flags)
 {
     if (flags != 0)
 	return -EINVAL;
 
     return unix_read(sock, (char *) buff, len, nonblock);
 }
+#endif
 
 struct proto_ops unix_proto_ops = {
     PF_UNIX,
@@ -574,8 +572,6 @@ struct proto_ops unix_proto_ops = {
     unix_select,
     NULL,
     unix_listen,
-    unix_send,
-    unix_recv,
 };
 
 void unix_proto_init(struct net_proto *pro)

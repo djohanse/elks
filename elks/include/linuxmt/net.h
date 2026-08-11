@@ -61,8 +61,6 @@ struct proto_ops {
     int (*select) ();
     int (*ioctl) ();
     int (*listen) ();
-    int (*send) ();
-    int (*recv) ();
 };
 #endif
 

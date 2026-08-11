@@ -1137,7 +1137,9 @@ int do_login(char *user, char *passwd, char *buffer, int len, char *ip,
 		return -1;
 	}
 	if (*passwd == '\0') {
-		lip = getpass("Password:");
+		printf("Password: ");
+		fflush(stdout);
+		lip = getpass("");
 		printf("\n");
 		if (strlen(lip) < 2) lip = passwd; /* use passwd from command line if present */
 	} else lip = passwd;

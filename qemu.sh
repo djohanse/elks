@@ -87,13 +87,13 @@ CONSOLE="-serial stdio"
 # Incoming http forwarding: example: connect to ELKS httpd with 'http://localhost:8080'
 # HOSTFWD="-net user,hostfwd=tcp:127.0.0.1:8080-10.0.2.15:80"
 
-# Simultaneous telnet, http and ftp forwarding
-# Port 4950 is the audiorcv default, so a host audio sender can reach it
+# Simultaneous telnet/2323, ftp/2121, http/8080, and audiorcv/4950 forwarding
 FWD="\
 hostfwd=tcp:127.0.0.1:8080-10.0.2.15:80,\
 hostfwd=tcp:127.0.0.1:2323-10.0.2.15:23,\
 hostfwd=tcp::8020-:20,\
 hostfwd=tcp::2121-:21,\
+hostfwd=tcp::4950-:4950,\
 hostfwd=tcp::8041-:49821,\
 hostfwd=tcp::8042-:49822,\
 hostfwd=tcp::8043-:49823,\
@@ -105,7 +105,12 @@ hostfwd=tcp::8048-:49828,\
 hostfwd=tcp::8049-:49829,\
 hostfwd=tcp::49152-:49152,\
 hostfwd=tcp::49153-:49153,\
-hostfwd=tcp::4950-:4950"
+hostfwd=tcp::49154-:49154,\
+hostfwd=tcp::49155-:49155,\
+hostfwd=tcp::49156-:49156,\
+hostfwd=tcp::49157-:49157,\
+hostfwd=tcp::49158-:49158,\
+hostfwd=tcp::49159-:49159"
 
 # new style
 #NET="-net nic,model=ne2k_isa -net user,$FWD"

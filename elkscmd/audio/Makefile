@@ -11,13 +11,13 @@ all: $(PRGS)
 install: $(PRGS)
 	$(INSTALL) $(PRGS) $(DESTDIR)/bin
 
-play: play.o $(TINYPRINTF)
+play: play.o adpcm.o $(TINYPRINTF)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 audiomix: audiomix.o $(TINYPRINTF)
 	$(LD) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
-audiorcv: audiorcv.o $(TINYPRINTF)
+audiorcv: audiorcv.o adpcm.o $(TINYPRINTF)
 	$(LD) $(LDFLAGS) -maout-heap=256 -maout-stack=1024 -o $@ $^ $(LDLIBS)
 
 clean:

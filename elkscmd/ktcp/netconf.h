@@ -52,6 +52,7 @@ struct packet_stats_s {
 	__u32	udpsndcnt;
 	__u32	udprcvcnt;
 	__u32	udpnoportcnt;
+	__u32	udpdropcnt;
 };
 
 extern struct packet_stats_s netstats;
