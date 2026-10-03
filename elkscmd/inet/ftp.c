@@ -524,8 +524,13 @@ int do_ls(int controlfd, int datafd, char **cmdline, int mode) {
 			while ((n = read(nfd, recvline, IOBUFLEN)) > 0) {
 				write(fd, recvline, n);
 			}
-			data_finished = TRUE;
+			/* Close our end once the data is drained. The server
+			 * will not send its final reply until it sees our
+			 * close, otherwise it reports 426 instead of 226. */
 			FD_CLR(nfd, &rdset);
+			close(nfd);
+			nfd = -1;
+			data_finished = TRUE;
 		}
 		if ((control_finished == TRUE) && (data_finished == TRUE)) {
 			get_reply(controlfd, recvline, sizeof(recvline), 1);
@@ -538,7 +543,7 @@ int do_ls(int controlfd, int datafd, char **cmdline, int mode) {
 		printf("Listing saved in %s\n", cmdline[2]);
 		close(fd);
 	}
-	close(nfd);
+	if (nfd >= 0) close(nfd);
 	return 1;
 }
 
@@ -659,8 +664,13 @@ int do_get(int controlfd, char *src, char *dst, int mode) {
 				bcnt += n;
 			}
 			//printf("got %d\n", bcnt);	// For later use
-			data_finished = TRUE;
+			/* Close our end once the data is drained. The server
+			 * will not send its final reply until it sees our
+			 * close, otherwise it reports 426 instead of 226. */
 			FD_CLR(datafd, &rdset);
+			close(datafd);
+			datafd = -1;
+			data_finished = TRUE;
 		}
 		if (icount > 30 || ((control_finished == TRUE) && (data_finished == TRUE)))
 			break;
